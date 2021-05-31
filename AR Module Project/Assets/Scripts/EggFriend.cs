@@ -1,8 +1,10 @@
 using System.Collections;
 using System.Collections.Generic;
+using Photon.Pun;
+using TMPro;
 using UnityEngine;
 
-public class EggFriend : MonoBehaviour
+public class EggFriend : MonoBehaviourPun, IPunInstantiateMagicCallback
 {
     [SerializeField] private float eatDistance;
     [SerializeField] private float walkDistance;
@@ -12,7 +14,7 @@ public class EggFriend : MonoBehaviour
     private Animator _animator;
 
     public bool foodAvailable;
-    public Transform foodLocation;
+    public List<Transform> foodLocation = new List<Transform>();
     
     [SerializeField] private SpriteRenderer body;
     [SerializeField] private SpriteRenderer face;
@@ -22,14 +24,39 @@ public class EggFriend : MonoBehaviour
     [SerializeField] private RectTransform textMask, barMask;
 
     [SerializeField] private bool hunger = true;
+
+    public int eggColour;
+
+    
+    public void OnPhotonInstantiate(PhotonMessageInfo info)
+    {
+        transform.parent = ARCentralManager.Project.NetworkManager.AR_Origin;
+    }
     
     // Start is called before the first frame update
-    void Start()
+    void OnEnable()
     {
         _cameraTransform = Camera.main.transform;
-        body.color = randomColours[(int) Random.Range(0, randomColours.Count)];
         _animator = body.GetComponent<Animator>();
-        //StartCoroutine(GetHungry());
+
+        if (!photonView.IsMine)
+        {
+            ARCentralManager.Project.NetworkManager.WaitBeforeLoadEggProperties(this, photonView);
+            ARCentralManager.Project.GameManager.AddEggFriendsToOnlineList(photonView.Owner.NickName, this);
+        }
+    }
+
+    public void SetColourManually(int c)
+    {
+        eggColour = c;
+        body.color = randomColours[c];
+    }
+    
+    
+    public void SetColourRandomly()
+    {
+        eggColour = (int) Random.Range(0, randomColours.Count);
+        body.color = randomColours[eggColour];
     }
 
     public void SetUI(RectTransform text, RectTransform bar)
@@ -62,14 +89,14 @@ public class EggFriend : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        Transform target;
+        Vector3 target;
         if (foodAvailable)
-            target = foodLocation;
+            target = GetClosestFood().position;
         else
-            target = _cameraTransform;
+            target = _cameraTransform.position;
         
         transform.LookAt(target);
-        
+
         var xRotation = transform.eulerAngles.x;
         if (xRotation > 180) xRotation = xRotation - 360;
         xRotation = Mathf.Clamp(xRotation, -25, 25);
@@ -78,26 +105,36 @@ public class EggFriend : MonoBehaviour
 
         if (foodAvailable)
         {
-            if (Vector3.Distance(transform.position, foodLocation.position) <= walkDistance && Vector3.Distance(transform.position, foodLocation.position) > eatDistance && walking != true)
+            if (photonView.IsMine)
             {
-                _animator.SetBool("walk", true);
-                walking = true;
-                StartCoroutine(Walking());
+                if (Vector3.Distance(transform.position, target) <= walkDistance &&
+                    Vector3.Distance(transform.position, target) > eatDistance && walking != true)
+                {
+                    _animator.SetBool("walk", true);
+                    walking = true;
+                    StartCoroutine(Walking(target));
+                }
+                else if (Vector3.Distance(transform.position, target) <= eatDistance ||
+                         Vector3.Distance(transform.position, target) > walkDistance)
+                {
+                    walking = false;
+                }
             }
-            else if (Vector3.Distance(transform.position, foodLocation.position) <= eatDistance || Vector3.Distance(transform.position, foodLocation.position) > walkDistance)
-            {
-                walking = false;
-            }
-            
-            if (Vector3.Distance(transform.position, foodLocation.position) <= eatDistance && eating != true)
+
+            if (Vector3.Distance(transform.position, target) <= eatDistance && eating != true)
             {
                 eating = true;
                 StartCoroutine(Eating());
             }
-            else if (Vector3.Distance(transform.position, foodLocation.position) > eatDistance)
+            else if (Vector3.Distance(transform.position, target) > eatDistance)
             {
                 eating = false;
             }
+        }
+        else
+        {
+            walking = false;
+            eating = false;
         }
     }
 
@@ -121,11 +158,11 @@ public class EggFriend : MonoBehaviour
         face.sprite = smile;
     }
     
-    private IEnumerator Walking()
+    private IEnumerator Walking(Vector3 target)
     {
         while (walking == true)
         {
-            transform.position = Vector3.MoveTowards(transform.position, foodLocation.position, 0.0001f);
+            transform.position = Vector3.MoveTowards(transform.position, target, 0.001f);
             yield return null;
         }
         _animator.SetBool("walk", false);
@@ -135,7 +172,31 @@ public class EggFriend : MonoBehaviour
     public void SetFood(Transform food)
     {
         foodAvailable = true;
-        foodLocation = food;
+        foreach (var foods in foodLocation)
+        {
+            if (Vector3.Distance(foods.position, food.position) < 0.01f)
+            {
+                print("DESTROYED FOOD");
+                Destroy(food.gameObject);
+                return;
+            }
+        }
+        foodLocation.Add(food);
+    }
+
+    private Transform GetClosestFood()
+    {
+        Transform closestFood = foodLocation[0];
+        foreach (var food in foodLocation)
+        {
+            if (Vector3.Distance(transform.position, food.position) <
+                Vector3.Distance(transform.position, closestFood.position))
+            {
+                closestFood = food;
+            }
+        }
+
+        return closestFood;
     }
 
     public void RemoveFood()
@@ -143,4 +204,6 @@ public class EggFriend : MonoBehaviour
         foodAvailable = false;
         foodLocation = null;
     }
+
+    
 }

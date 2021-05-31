@@ -1,20 +1,29 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using Photon.Pun;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 
 public class ARCursor : MonoBehaviour
 {
+    [SerializeField] private GameObject placeEggUI;
     public GameManager GameManager;
+    [SerializeField] private NetworkManager _networkManager;
+    [SerializeField] private ARPlaneManager arPlaneManager;
     public GameObject cursor;
     public GameObject instantiatedObject;
     public ARRaycastManager raycastManager;
 
     public bool cursorActive = true;
+
+    private bool hostSpawningOthers = false;
+
+    private Dictionary<string, GameManager.Egg> otherEggs = new Dictionary<string, GameManager.Egg>();
     // Start is called before the first frame update
     void Start()
     {
-        cursor.SetActive(cursorActive);
+        EnableSpawning(true);
     }
 
     // Update is called once per frame
@@ -25,23 +34,29 @@ public class ARCursor : MonoBehaviour
             
             UpdateCursor();
             
-            if (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began)
-            {
-                Spawn();
-            }
+            
         }
 
         
     }
 
     [ContextMenu("Spawn")]
-    private void Spawn()
+    public void Spawn()
     {
-        GameObject egg = Instantiate(instantiatedObject, transform.position + new Vector3(0, 0.025f, 0), transform.rotation);
-        GameManager.CreateEggFriend(egg.GetComponent<EggFriend>());
+        EggFriend egg = PhotonNetwork.Instantiate("EggFriend", transform.position + new Vector3(0, 0.025f, 0), transform.rotation).GetComponent<EggFriend>();
+        //EggFriend egg = Instantiate(instantiatedObject, transform.position + new Vector3(0, 0.025f, 0), transform.rotation).GetComponent<EggFriend>();
+        egg.SetColourRandomly();
+        GameManager.CreateEggFriend(egg);
         cursorActive = false;
         cursor.SetActive(cursorActive);
+        placeEggUI.SetActive(false);
+        arPlaneManager.enabled = false;
+        foreach (var plane in arPlaneManager.trackables)
+        {
+            plane.gameObject.SetActive(false);
+        }
     }
+
 
     void UpdateCursor()
     {
@@ -54,5 +69,12 @@ public class ARCursor : MonoBehaviour
             transform.position = hits[0].pose.position;
             transform.rotation = hits[0].pose.rotation;
         }
+    }
+
+    public void EnableSpawning(bool enable)
+    {
+        cursorActive = enable;
+        cursor.SetActive(cursorActive);
+        placeEggUI.SetActive(true);
     }
 }
